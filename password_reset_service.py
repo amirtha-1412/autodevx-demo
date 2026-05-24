@@ -2,20 +2,21 @@ import secrets
 import string
 import smtplib
 from email.message import EmailMessage
-from typing import Dict
+from datetime import datetime, timedelta
+from typing import Optional
 
 class PasswordResetService:
     """
-    A service for generating and sending password reset tokens.
+    Service responsible for generating password reset tokens and sending them to users via email.
     """
 
     def __init__(self, smtp_server: str, smtp_port: int, from_email: str, password: str):
         """
-        Initializes the PasswordResetService.
+        Initializes the password reset service with SMTP server details.
 
         Args:
         - smtp_server (str): The SMTP server to use for sending emails.
-        - smtp_port (int): The port to use for the SMTP server.
+        - smtp_port (int): The port number of the SMTP server.
         - from_email (str): The email address to use as the sender.
         - password (str): The password for the sender email account.
         """
@@ -23,64 +24,64 @@ class PasswordResetService:
         self.smtp_port = smtp_port
         self.from_email = from_email
         self.password = password
+        self.token_expiration_time = timedelta(minutes=30)  # 30 minutes
 
-    def generate_password_reset_token(self, user_id: str) -> str:
+    def generate_password_reset_token(self, user_id: int) -> str:
         """
         Generates a unique password reset token for the given user ID.
 
         Args:
-        - user_id (str): The ID of the user requesting a password reset.
+        - user_id (int): The ID of the user requesting a password reset.
 
         Returns:
         - str: A unique password reset token.
         """
-        # Generate a random token with a mix of uppercase, lowercase, and digits
-        token = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
+        token = secrets.token_urlsafe(16)
+        # Store the token in a database or cache with the user ID and expiration time
+        # For demonstration purposes, we'll use a simple dictionary
+        self.tokens = getattr(self, 'tokens', {})
+        self.tokens[token] = {'user_id': user_id, 'expiration_time': datetime.now() + self.token_expiration_time}
         return token
 
-    def send_password_reset_token(self, user_email: str, token: str) -> None:
+    def send_password_reset_email(self, user_email: str, token: str) -> bool:
         """
-        Sends the password reset token to the user's registered email address.
+        Sends a password reset email to the user with the given token.
 
         Args:
-        - user_email (str): The email address of the user requesting a password reset.
-        - token (str): The password reset token to send.
+        - user_email (str): The email address of the user.
+        - token (str): The password reset token.
 
-        Raises:
-        - smtplib.SMTPException: If there is an issue connecting to the SMTP server.
+        Returns:
+        - bool: True if the email was sent successfully, False otherwise.
         """
         try:
-            # Create an email message
             msg = EmailMessage()
-            msg.set_content(f"Your password reset token is: {token}")
-            msg['Subject'] = "Password Reset Token"
+            msg.set_content(f"Password reset token: {token}")
+            msg['Subject'] = "Password Reset Request"
             msg['From'] = self.from_email
             msg['To'] = user_email
 
-            # Send the email using the SMTP server
-            with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port) as smtp:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as smtp:
+                smtp.starttls()
                 smtp.login(self.from_email, self.password)
                 smtp.send_message(msg)
+            return True
         except smtplib.SMTPException as e:
-            # Handle SMTP server connection issues
             print(f"Error sending email: {e}")
+            return False
 
-    def request_password_reset(self, user_id: str, user_email: str) -> None:
+    def validate_password_reset_token(self, token: str) -> Optional[int]:
         """
-        Requests a password reset for the given user ID and sends the token to the user's email address.
+        Validates the given password reset token and returns the associated user ID if valid.
 
         Args:
-        - user_id (str): The ID of the user requesting a password reset.
-        - user_email (str): The email address of the user requesting a password reset.
+        - token (str): The password reset token to validate.
 
-        Raises:
-        - ValueError: If the user ID or email address is invalid.
+        Returns:
+        - Optional[int]: The user ID associated with the token if valid, None otherwise.
         """
-        if not user_id or not user_email:
-            raise ValueError("User ID and email address are required")
-
-        # Generate a password reset token
-        token = self.generate_password_reset_token(user_id)
-
-        # Send the token to the user's email address
-        self.send_password_reset_token(user_email, token)
+        if token in self.tokens:
+            token_info = self.tokens[token]
+            if datetime.now() < token_info['expiration_time']:
+                return token_info['user_id']
+        return None

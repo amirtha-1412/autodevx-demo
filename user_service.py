@@ -1,41 +1,49 @@
-from typing import Dict
+from password_reset_service import PasswordResetService
 
 class UserService:
     """
-    A service for managing user data.
+    Service responsible for user-related operations, including password resets.
     """
 
-    def __init__(self):
+    def __init__(self, password_reset_service: PasswordResetService):
         """
-        Initializes the UserService.
-        """
-        # Use a secure dictionary to store user data
-        self.users: Dict[str, Dict[str, str]] = {}
-
-    def get_user_email(self, user_id: str) -> str:
-        """
-        Gets the email address for the given user ID.
+        Initializes the user service with a password reset service instance.
 
         Args:
-        - user_id (str): The ID of the user.
+        - password_reset_service (PasswordResetService): The password reset service instance.
+        """
+        self.password_reset_service = password_reset_service
+        self.users = {}  # For demonstration purposes, we'll use a simple dictionary
+
+    def request_password_reset(self, user_id: int, user_email: str) -> bool:
+        """
+        Requests a password reset for the given user ID and email.
+
+        Args:
+        - user_id (int): The ID of the user requesting a password reset.
+        - user_email (str): The email address of the user.
 
         Returns:
-        - str: The email address of the user.
+        - bool: True if the password reset request was successful, False otherwise.
         """
-        if user_id in self.users:
-            return self.users[user_id]['email']
-        else:
-            raise ValueError("User not found")
+        token = self.password_reset_service.generate_password_reset_token(user_id)
+        return self.password_reset_service.send_password_reset_email(user_email, token)
 
-    def add_user(self, user_id: str, email: str) -> None:
+    def reset_password(self, token: str, new_password: str) -> bool:
         """
-        Adds a new user to the system.
+        Resets the password for the user associated with the given token.
 
         Args:
-        - user_id (str): The ID of the user.
-        - email (str): The email address of the user.
+        - token (str): The password reset token.
+        - new_password (str): The new password.
+
+        Returns:
+        - bool: True if the password was reset successfully, False otherwise.
         """
-        if user_id and email:
-            self.users[user_id] = {'email': email}
-        else:
-            raise ValueError("User ID and email address are required")
+        user_id = self.password_reset_service.validate_password_reset_token(token)
+        if user_id:
+            # Update the user's password in the database or cache
+            # For demonstration purposes, we'll use a simple dictionary
+            self.users[user_id] = {'password': new_password}
+            return True
+        return False
