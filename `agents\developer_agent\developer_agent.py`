@@ -1,0 +1,97 @@
+"""
+agents/developer_agent/developer_agent.py
+---------------------------------------------
+Developer Agent - Intelligent Code Modification
+Generates production-ready code based on requirements.
+
+Features:
+  - LLM-powered code generation
+  - Repository-aware file modification
+  - Semantic code understanding
+  - Context-aware synthesis
+  - Multiple file support
+  - Diff generation
+  - Retry with QA feedback
+"""
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+from agents.llm import call_llm
+from agents.developer_agent.repository_analyzer import RepositoryAnalyzer
+from agents.developer_agent.code_validator import CodeValidator
+from agents.developer_agent.enhanced_prompts import EnhancedPromptBuilder
+
+
+# ─────────────────────────────────────────────
+# Code Generation Result
+# ─────────────────────────────────────────────
+
+@dataclass
+class CodeGenerationResult:
+    """Result of code generation."""
+    success: bool
+    generated_files: Dict[str, str] = field(default_factory=dict)  # {filename: code}
+    code_diff: str = ""
+    implementation_notes: str = ""
+    error: str = ""
+    
+    def to_dict(self) -> dict:
+        return {
+            "success": self.success,
+            "generated_files": self.generated_files,
+            "code_diff": self.code_diff,
+            "implementation_notes": self.implementation_notes,
+            "error": self.error,
+        }
+
+
+# ─────────────────────────────────────────────
+# Developer Agent
+# ─────────────────────────────────────────────
+
+class DeveloperAgent:
+    """
+    Generates production-ready code based on requirements.
+    """
+    
+    def __init__(self, repo_path: str = "."):
+        self.repo_path = Path(repo_path)
+        self.repository_analyzer = RepositoryAnalyzer(repo_path)
+        self.code_validator = CodeValidator()
+        self.prompt_builder = EnhancedPromptBuilder()
+    
+    def generate_code(self, requirements: List[str]) -> CodeGenerationResult:
+        """
+        Generates code based on the given requirements.
+
+        Args:
+        - requirements (List[str]): List of requirements to generate code for.
+
+        Returns:
+        - CodeGenerationResult: Result of code generation.
+        """
+        # Analyze the repository to find files to modify
+        files_to_modify = self.repository_analyzer.find_files_to_modify(requirements)
+        
+        # Generate code for each file
+        generated_files = {}
+        for file in files_to_modify:
+            try:
+                # Generate code using LLM
+                code = call_llm(self.prompt_builder.build_prompt(file.filepath, requirements))
+                generated_files[file.filepath] = code
+            except Exception as e:
+                # Log any errors during code generation
+                logger.error(f"Error generating code for {file.filepath}: {e}")
+        
+        # Validate the generated code
+        validation_result = self.code_validator.validate_code(generated_files)
+        
+        # Create the code generation result
+        result = CodeGenerationResult(
+            success=validation_result.success,
+            generated_files=generated_files,
+            code_diff=validation_result.code_diff,
+            implementation_notes=validation_result.implementation_notes,
+            error=validation_result.error
+        )

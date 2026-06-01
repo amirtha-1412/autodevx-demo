@@ -1,0 +1,188 @@
+"""
+agents/developer_agent/repository_analyzer.py
+---------------------------------------------
+Repository Analyzer - Intelligent Code Understanding
+Analyzes existing repository structure to find files to modify.
+
+Features:
+  - Repository structure analysis
+  - Semantic file matching
+  - Code pattern recognition
+  - Intelligent file selection
+"""
+
+import os
+import re
+from dataclasses import dataclass
+from typing import List, Dict, Optional
+from pathlib import Path
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class FileAnalysis:
+    """Analysis result for a single file."""
+    filepath: str
+    file_type: str  # route, model, service, util, test
+    patterns: List[str]  # Detected patterns (auth, user, api, etc.)
+    functions: List[str]  # Function names found
+    classes: List[str]  # Class names found
+    imports: List[str]  # Import statements
+    relevance_score: float  # 0-1 score for requirement match
+    should_modify: bool  # Whether this file should be modified
+    modification_reason: str  # Why this file was selected
+
+
+class RepositoryAnalyzer:
+    """
+    Analyzes repository structure to intelligently select files for modification.
+    """
+    
+    def __init__(self, repo_path: str = "."):
+        self.repo_path = Path(repo_path)
+        self.file_cache = {}
+    
+    # ─────────────────────────────────────────
+    # Main Analysis Method
+    # ─────────────────────────────────────────
+    
+    def find_files_to_modify(
+        self,
+        requirements: List[str],
+        ticket_type: str = "feature"
+    ) -> List[FileAnalysis]:
+        """
+        Analyzes the repository to find files that need modification based on the given requirements.
+
+        Args:
+        - requirements (List[str]): List of requirements to match against the code.
+        - ticket_type (str): Type of ticket (e.g., feature, bugfix). Defaults to "feature".
+
+        Returns:
+        - List[FileAnalysis]: List of files that should be modified along with their analysis results.
+        """
+        # Initialize the list to store files to modify
+        files_to_modify = []
+        
+        # Iterate over all files in the repository
+        for root, dirs, files in os.walk(self.repo_path):
+            for file in files:
+                if file.endswith(".py"):  # Only consider Python files
+                    file_path = os.path.join(root, file)
+                    try:
+                        # Analyze the file
+                        analysis = self.analyze_file(file_path, requirements)
+                        if analysis.should_modify:
+                            files_to_modify.append(analysis)
+                    except Exception as e:
+                        # Log any errors during analysis
+                        logger.error(f"Error analyzing {file_path}: {e}")
+        
+        return files_to_modify
+    
+    def analyze_file(self, file_path: str, requirements: List[str]) -> FileAnalysis:
+        """
+        Analyzes a single file to determine if it should be modified based on the given requirements.
+
+        Args:
+        - file_path (str): Path to the file to analyze.
+        - requirements (List[str]): List of requirements to match against the code.
+
+        Returns:
+        - FileAnalysis: Analysis result for the file.
+        """
+        # Read the file content
+        with open(file_path, "r") as file:
+            content = file.read()
+        
+        # Detect patterns, functions, classes, and imports in the file
+        patterns = self.detect_patterns(content)
+        functions = self.detect_functions(content)
+        classes = self.detect_classes(content)
+        imports = self.detect_imports(content)
+        
+        # Calculate the relevance score based on the requirements
+        relevance_score = self.calculate_relevance_score(content, requirements)
+        
+        # Determine if the file should be modified
+        should_modify = relevance_score > 0.5  # Threshold for modification
+        
+        # Create the analysis result
+        analysis = FileAnalysis(
+            filepath=file_path,
+            file_type=self.detect_file_type(content),
+            patterns=patterns,
+            functions=functions,
+            classes=classes,
+            imports=imports,
+            relevance_score=relevance_score,
+            should_modify=should_modify,
+            modification_reason="Matches requirements" if should_modify else "No match"
+        )
+        
+        return analysis
+    
+    def detect_patterns(self, content: str) -> List[str]:
+        # Implement pattern detection logic here
+        # For demonstration, assume we're looking for 'auth' and 'user' patterns
+        patterns = []
+        if "auth" in content:
+            patterns.append("auth")
+        if "user" in content:
+            patterns.append("user")
+        return patterns
+    
+    def detect_functions(self, content: str) -> List[str]:
+        # Implement function detection logic here
+        # For demonstration, assume we're looking for 'def' keyword
+        functions = []
+        for line in content.splitlines():
+            if line.strip().startswith("def"):
+                functions.append(line.strip().split("def")[1].split("(")[0].strip())
+        return functions
+    
+    def detect_classes(self, content: str) -> List[str]:
+        # Implement class detection logic here
+        # For demonstration, assume we're looking for 'class' keyword
+        classes = []
+        for line in content.splitlines():
+            if line.strip().startswith("class"):
+                classes.append(line.strip().split("class")[1].split(":")[0].strip())
+        return classes
+    
+    def detect_imports(self, content: str) -> List[str]:
+        # Implement import detection logic here
+        # For demonstration, assume we're looking for 'import' keyword
+        imports = []
+        for line in content.splitlines():
+            if line.strip().startswith("import"):
+                imports.append(line.strip())
+        return imports
+    
+    def detect_file_type(self, content: str) -> str:
+        # Implement file type detection logic here
+        # For demonstration, assume we're looking for 'route' pattern
+        if "route" in content:
+            return "route"
+        elif "model" in content:
+            return "model"
+        elif "service" in content:
+            return "service"
+        elif "util" in content:
+            return "util"
+        elif "test" in content:
+            return "test"
+        else:
+            return "unknown"
+    
+    def calculate_relevance_score(self, content: str, requirements: List[str]) -> float:
+        # Implement relevance score calculation logic here
+        # For demonstration, assume we're counting the number of requirements matched
+        score = 0
+        for requirement in requirements:
+            if requirement in content:
+                score += 1
+        return score / len(requirements)
