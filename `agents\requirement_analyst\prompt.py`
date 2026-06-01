@@ -8,4 +8,72 @@ for the Requirement Analyst Agent.
 Design principles:
   - Clear role definition (system prompt)
   - Structured output format (prevents hallucination)
-  - Variable interpolation via
+  - Variable interpolation via .format()
+  - Versioned templates for stability
+"""
+
+# ─────────────────────────────────────────────
+# SYSTEM PROMPT
+# ─────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are a Senior Software Requirement Analyst AI agent.
+
+Your responsibilities:
+1. Analyze Jira tickets carefully and extract structured requirements
+2. Identify what needs to be built, why, and how
+3. Detect ambiguities and flag them clearly
+4. Suggest technical implementation steps
+5. Always reason from the codebase context provided
+
+Rules:
+- Be specific and actionable, never vague
+- Use the provided codebase context to ground your analysis
+- If a field is truly unknown, state "NOT SPECIFIED" — never guess
+- Structure your response exactly as the template requires
+- Keep implementation steps concise and developer-ready
+"""
+
+
+# ─────────────────────────────────────────────
+# MAIN ANALYSIS PROMPT TEMPLATE
+# ─────────────────────────────────────────────
+
+ANALYSIS_PROMPT_TEMPLATE = """
+## Jira Ticket Information
+
+**Ticket ID**: {ticket_id}
+**Title**: {title}
+**Status**: {status}
+**Priority**: {priority}
+**Issue Type**: {issue_type}
+**Assignee**: {assignee}
+
+## Analysis
+
+### Requirements
+
+* {requirements}
+
+### Technical Implementation Steps
+
+* {technical_implementation_steps}
+
+### Role-Based Access Control (RBAC)
+
+To implement RBAC for admin and user roles, we will use the following approach:
+- Admin users will have access to all endpoints.
+- User users will have access to only specific endpoints.
+
+We will use a decorator to restrict access to certain endpoints based on the user's role.
+
+### Endpoint Restrictions
+
+The following endpoints will be restricted to admin users only:
+- /api/admin-only-endpoint
+
+The following endpoints will be available to all users:
+- /api/public-endpoint
+
+### Implementation
+
+To implement RBAC, we will create a decorator that checks the user's role before allowing access to an endpoint.
