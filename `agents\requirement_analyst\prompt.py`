@@ -1,0 +1,11 @@
+"""
+agents/requirement_analyst/prompt.py
+---------------------------------------------
+Structured Prompt Templates
+Provides consistent, versioned prompt templates
+for the Requirement Analyst Agent.
+
+Design principles:
+  - Clear role definition (system prompt)
+  - Structured output format (prevents hallucination)
+  - Variable interpolation via
