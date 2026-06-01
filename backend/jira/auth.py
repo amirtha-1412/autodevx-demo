@@ -54,12 +54,40 @@ def get_auth_headers() -> dict:
     Returns:
         dict: HTTP headers with Authorization and Content-Type
     """
-    email = get_jira_config()["email"]
-    api_key = get_jira_config()["api_key"]
-    auth_string = f"{email}:{api_key}"
-    encoded_auth = base64.b64encode(auth_string.encode()).decode()
-    headers = {
-        "Authorization": f"Basic {encoded_auth}",
-        "Content-Type": "application/json",
+    config = get_jira_config()
+
+    # Encode credentials: email:api_token → base64
+    credentials = f"{config['email']}:{config['api_key']}"
+    encoded = base64.b64encode(credentials.encode("utf-8")).decode("utf-8")
+
+    return {
+        "Authorization": f"Basic {encoded}",
+        "Content-Type": "application/json"
     }
-    return headers
+
+
+# ─────────────────────────────────────────────
+# Jira Connection Tester
+# ─────────────────────────────────────────────
+
+def test_jira_connection() -> dict:
+    """
+    Tests the Jira connection by calling /rest/api/3/myself.
+    Returns the authenticated user's profile on success.
+
+    Returns:
+        dict: { "success": bool, "user": str, "account_id": str, "error": str }
+    """
+    try:
+        config  = get_jira_config()
+        headers = get_auth_headers()
+
+        url      = f"{config['base_url']}/rest/api/3/myself"
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            return {"success": True, "user": response.json()["name"], "account_id": response.json()["accountId"], "error": ""}
+        else:
+            return {"success": False, "user": "", "account_id": "", "error": response.text}
+    except Exception as e:
+        return {"success": False, "user": "", "account_id": "", "error": str(e)}

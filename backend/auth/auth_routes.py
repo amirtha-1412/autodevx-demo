@@ -23,7 +23,8 @@ from backend.auth.auth_utils import (
     get_user,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from backend.jira.auth import get_jira_config, get_auth_headers
+from backend.jira.auth import get_jira_config, get_auth_headers, test_jira_connection
+from backend.gh_integration.github_routes import GitHubClient
 
 # ─────────────────────────────────────────────
 # Models
@@ -62,17 +63,18 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 # ─────────────────────────────────────────────
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Get the current user based on the access token."""
+    """Get the current user from the access token."""
     try:
         payload = decode_access_token(token)
-        user = get_user(payload.get("sub"))
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+        user = get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        return user
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
 
 
 # ─────────────────────────────────────────────
@@ -82,14 +84,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     """Get the current active user."""
     if current_user.disabled:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
     return current_user
 
 
 # ─────────────────────────────────────────────
-# Login Endpoint
+# Routes
 # ─────────────────────────────────────────────
 
+router = APIRouter(prefix="/api", tags=["Auth"])
+
+
+@router.post("/auth/login")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     """Login with username/password and get access token."""
     user = authenticate_user(form_data.username, form_data.password)
@@ -106,39 +112,37 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-# ─────────────────────────────────────────────
-# Get User Info Endpoint
-# ─────────────────────────────────────────────
+@router.get("/auth/me")
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    """Get the current user's profile information."""
+    try:
+        config = get_jira_config()
+        headers = get_auth_headers()
+        url = f"{config['base_url']}/rest/api/3/myself"
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-async def get_user_info(current_user: User = Depends(get_current_active_user)):
-    """Get the current user's info."""
-    jira_config = get_jira_config()
-    auth_headers = get_auth_headers()
-    response = requests.get(
-        f"{jira_config['base_url']}/rest/api/3/myself", headers=auth_headers
-    )
-    response.raise_for_status()
-    user_info = response.json()
-    return user_info
 
-
-# ─────────────────────────────────────────────
-# Refresh Token Endpoint
-# ─────────────────────────────────────────────
-
-async def refresh_token(token: str = Depends(oauth2_scheme)):
-    """Refresh the access token."""
+@router.post("/auth/refresh")
+async def refresh_access_token(token: str = Depends(oauth2_scheme)):
+    """Refresh access token."""
     try:
         payload = decode_access_token(token)
-        user = get_user(payload.get("sub"))
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+        user = get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
