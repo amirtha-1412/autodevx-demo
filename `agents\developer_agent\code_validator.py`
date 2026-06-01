@@ -1,0 +1,46 @@
+"""
+agents/developer_agent/code_validator.py
+---------------------------------------------
+Code Validator - Validates Generated Code Quality
+Performs multi-stage validation before returning code.
+
+Features:
+  - Syntax validation (AST parsing)
+  - Import validation
+  - Type hint checking
+  - Docstring presence
+  - Error handling patterns
+  - Security vulnerability detection
+  - Code quality scoring
+"""
+
+import ast
+import re
+from dataclasses import dataclass, field
+from typing import List, Dict, Tuple, Optional
+
+
+@dataclass
+class ValidationIssue:
+    """Represents a validation issue."""
+    severity: str  # ERROR, WARNING, INFO
+    category: str  # syntax, imports, types, docs, security, quality
+    message: str
+    line_number: Optional[int] = None
+    suggestion: Optional[str] = None
+
+
+@dataclass
+class ValidationResult:
+    """Result of code validation."""
+    is_valid: bool
+    issues: List[ValidationIssue] = field(default_factory=list)
+    quality_score: int = 0  # 0-100
+    has_errors: bool = False
+    has_warnings: bool = False
+    
+    def get_errors(self) -> List[ValidationIssue]:
+        return [i for i in self.issues if i.severity == "ERROR"]
+    
+    def get_warnings(self) -> List[ValidationIssue]:
+        return [i for i in self.issues if i.severity == "WARNING"]
