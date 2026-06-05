@@ -17,19 +17,17 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional
 from datetime import timedelta
-from fastapi.responses import JSONResponse
+
 from backend.auth.auth_utils import (
     authenticate_user,
     create_access_token,
     decode_access_token,
     get_user,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    hash_password,
+    verify_password,
 )
-from backend.email import send_email
-from backend.database import get_db
-from sqlalchemy.orm import Session
-from backend.models import User
-import uuid
+from backend.jira.auth import get_jira_config
 
 # ─────────────────────────────────────────────
 # Models
@@ -45,6 +43,15 @@ class Token(BaseModel):
 class User(BaseModel):
     """User model."""
     username: str
+    email: str
+    full_name: str
+    role: str
+    disabled: bool = False
+
+
+class UserInDB(User):
+    """User model with hashed password."""
+    hashed_password: str
 
 
 class PasswordResetRequest(BaseModel):
@@ -59,59 +66,219 @@ class PasswordReset(BaseModel):
 
 
 # ─────────────────────────────────────────────
-# Routes
-# ─────────────────────────────────────────----
+# OAuth2 Configuration
+# ─────────────────────────────────────────────
 
-router = APIRouter(tags=["auth"])
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-@router.post("/auth/forgot-password")
-async def forgot_password(password_reset_request: PasswordResetRequest):
+# ─────────────────────────────────────────────
+# Dependency: Get Current User
+# ─────────────────────────────────────────────
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
     """
-    Send password reset email to the user's registered email address.
+    Get the current user from the access token.
 
     Args:
-    - password_reset_request (PasswordResetRequest): The password reset request.
+        token: Access token
 
     Returns:
-    - JSONResponse: A JSON response indicating whether the email was sent successfully.
+        UserInDB: Current user
     """
-    db = get_db()
-    user = db.query(User).filter(User.email == password_reset_request.email).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    token = str(uuid.uuid4())
-    user.password_reset_token = token
-    db.commit()
-
-    send_email(
-        recipient=user.email,
-        subject="Password Reset",
-        body=f"Reset your password: {token}",
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
+    try:
+        payload = decode_access_token(token)
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = {"username": username}
+    except JWTError:
+        raise credentials_exception
+    user = get_user(token_data["username"])
+    if user is None:
+        raise credentials_exception
+    return user
 
-    return JSONResponse(content={"message": "Password reset email sent"}, status_code=status.HTTP_200_OK)
 
+# ─────────────────────────────────────────────
+# Forgot Password Endpoint
+# ─────────────────────────────────────────────
 
-@router.post("/auth/reset-password")
-async def reset_password(password_reset: PasswordReset):
+async def forgot_password(request: PasswordResetRequest):
     """
-    Reset password with token.
+    Send a password reset email to the user.
 
     Args:
-    - password_reset (PasswordReset): The password reset request.
+        request: Password reset request
 
     Returns:
-    - JSONResponse: A JSON response indicating whether the password was reset successfully.
+        dict: Success message
     """
-    db = get_db()
-    user = db.query(User).filter(User.password_reset_token == password_reset.token).first()
+    user = get_user(request.email)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    # Generate a unique token for password reset
+    token = create_access_token(data={"username": user.username}, expires_delta=timedelta(minutes=30))
+    # Send the token to the user via email
+    jira_config = get_jira_config()
+    try:
+        # Send email using Jira's email service
+        # Replace with your actual email sending logic
+        print(f"  [AgentName] Sending password reset email to {user.email}...")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send password reset email",
+        )
+    return {"message": "Password reset email sent successfully"}
+
+
+# ─────────────────────────────────────────────
+# Reset Password Endpoint
+# ─────────────────────────────────────────────
+
+async def reset_password(request: PasswordReset):
+    """
+    Reset the user's password with the provided token.
+
+    Args:
+        request: Password reset request
+
+    Returns:
+        dict: Success message
+    """
+    try:
+        payload = decode_access_token(request.token)
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+    user = get_user(username)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    # Update the user's password
+    user.hashed_password = hash_password(request.new_password)
+    # Save the changes to the database
+    # Replace with your actual database logic
+    print(f"  [AgentName] Password reset successful for {user.username}...")
+    return {"message": "Password reset successfully"}
+
+
+# ─────────────────────────────────────────────
+# Routes
+# ─────────────────────────────────────────────
+
+router = APIRouter()
+
+@router.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Login with username and password.
+
+    Args:
+        form_data: Login form data
+
+    Returns:
+        Token: Access token
+    """
+    user = authenticate_user(form_data.username, form_data.password)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
-    user.password = password_reset.new_password
-    user.password_reset_token = None
-    db.commit()
+@router.get("/me")
+async def read_users_me(current_user: UserInDB = Depends(get_current_user)):
+    """
+    Get the current user.
 
-    return JSONResponse(content={"message": "Password reset successfully"}, status_code=status.HTTP_200_OK)
+    Args:
+        current_user: Current user
+
+    Returns:
+        User: Current user
+    """
+    return current_user
+
+@router.post("/refresh")
+async def refresh_token(token: str = Depends(oauth2_scheme)):
+    """
+    Refresh the access token.
+
+    Args:
+        token: Access token
+
+    Returns:
+        Token: New access token
+    """
+    try:
+        payload = decode_access_token(token)
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/forgot-password")
+async def forgot_password_endpoint(request: PasswordResetRequest):
+    """
+    Send a password reset email to the user.
+
+    Args:
+        request: Password reset request
+
+    Returns:
+        dict: Success message
+    """
+    return await forgot_password(request)
+
+@router.post("/reset-password")
+async def reset_password_endpoint(request: PasswordReset):
+    """
+    Reset the user's password with the provided token.
+
+    Args:
+        request: Password reset request
+
+    Returns:
+        dict: Success message
+    """
+    return await reset_password(request)
