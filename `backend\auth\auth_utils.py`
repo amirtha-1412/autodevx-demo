@@ -1,0 +1,164 @@
+"""
+backend/auth/auth_utils.py
+---------------------------------------------
+Authentication Utilities - JWT & Password Hashing
+Provides secure authentication with JWT tokens.
+
+Features:
+  - Password hashing with bcrypt
+  - JWT token generation and validation
+  - Token expiration handling
+  - Secure password verification
+  - Password reset functionality
+"""
+
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+import bcrypt
+import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+# JWT Configuration
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+
+# ─────────────────────────────────────────────
+# Password Hashing
+# ─────────────────────────────────────────────
+
+def hash_password(password: str) -> str:
+    """
+    Hash a password using bcrypt.
+    
+    Args:
+        password: Plain text password
+    
+    Returns:
+        Hashed password
+    """
+    # Convert password to bytes and hash
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a password against its hash.
+    
+    Args:
+        plain_password: Plain text password
+        hashed_password: Hashed password from database
+    
+    Returns:
+        True if password matches, False otherwise
+    """
+    password_bytes = plain_password.encode('utf-8')
+    hashed_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
+
+
+# ─────────────────────────────────────────────
+# JWT Token Generation and Validation
+# ─────────────────────────────────────────────
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """
+    Create an access token.
+    
+    Args:
+        data: The data to encode
+        expires_delta: The expiration time
+    
+    Returns:
+        The access token
+    """
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def decode_access_token(token: str):
+    """
+    Decode an access token.
+    
+    Args:
+        token: The access token
+    
+    Returns:
+        The decoded data
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = {"username": username}
+    except JWTError:
+        raise credentials_exception
+    return token_data
+
+
+# ─────────────────────────────────────────────
+# Password Reset
+# ─────────────────────────────────────────────
+
+def send_password_reset_email(email: str):
+    """
+    Send a password reset email to the user.
+    
+    Args:
+        email: The user's email
+    """
+    # Generate a password reset token
+    token = create_access_token({"email": email}, expires_delta=timedelta(minutes=30))
+    
+    # Send the email
+    msg = MIMEMultipart()
+    msg['From'] = 'your-email@gmail.com'
+    msg['To'] = email
+    msg['Subject'] = 'Password Reset'
+    body = f'Click this link to reset your password: http://localhost:8000/auth/reset-password?token={token}'
+    msg.attach(MIMEText(body, 'plain'))
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(msg['From'], 'your-password')
+    text = msg.as_string()
+    server.sendmail(msg['From'], msg['To'], text)
+    server.quit()
+
+
+def reset_password(token: str, new_password: str):
+    """
+    Reset the user's password.
+    
+    Args:
+        token: The password reset token
+        new_password: The new password
+    """
+    # Verify the token
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("email")
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    
+    # Update the user's password
+    # This is a placeholder, you should replace it with your actual database update code
+    print(f"Updating password for user {email} to {new_password}")

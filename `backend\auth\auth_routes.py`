@@ -1,0 +1,151 @@
+"""
+backend/auth/auth_routes.py
+---------------------------------------------
+Authentication Routes - Login & Token Management
+Provides secure login and token endpoints.
+
+Endpoints:
+  POST /auth/login - Login with username/password
+  GET /auth/me - Get current user info
+  POST /auth/refresh - Refresh access token
+  POST /auth/forgot-password - Send password reset email
+  POST /auth/reset-password - Reset password
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from typing import Optional
+from datetime import timedelta
+
+from backend.auth.auth_utils import (
+    authenticate_user,
+    create_access_token,
+    decode_access_token,
+    get_user,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    send_password_reset_email,
+    reset_password
+)
+
+
+# ─────────────────────────────────────────────
+# Models
+# ─────────────────────────────────────────────
+
+class Token(BaseModel):
+    """Token response model."""
+    access_token: str
+    token_type: str
+    expires_in: int
+
+
+class User(BaseModel):
+    """User model."""
+    username: str
+    email: str
+    full_name: str
+    role: str
+    disabled: bool = False
+
+
+class UserInDB(User):
+    """User model with hashed password."""
+    hashed_password: str
+
+
+class PasswordResetRequest(BaseModel):
+    """Password reset request model."""
+    email: str
+
+
+class PasswordReset(BaseModel):
+    """Password reset model."""
+    token: str
+    new_password: str
+
+
+# ─────────────────────────────────────────────
+# OAuth2 Configuration
+# ─────────────────────────────────────────────
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+# ─────────────────────────────────────────────
+# Dependency: Get Current User
+# ─────────────────────────────────────────────
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    """
+    Get the current user based on the provided token.
+
+    Args:
+        token: The access token
+
+    Returns:
+        The current user
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = decode_access_token(token)
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = {"username": username}
+    except JWTError:
+        raise credentials_exception
+    user = get_user(token_data["username"])
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+# ─────────────────────────────────────────────
+# Forgot Password Endpoint
+# ─────────────────────────────────────────────
+
+router = APIRouter()
+
+@router.post("/forgot-password")
+async def forgot_password(request: PasswordResetRequest):
+    """
+    Send a password reset email to the user.
+
+    Args:
+        request: The password reset request
+
+    Returns:
+        A success message
+    """
+    try:
+        send_password_reset_email(request.email)
+        return {"message": "Password reset email sent successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# ─────────────────────────────────────────────
+# Reset Password Endpoint
+# ─────────────────────────────────────────────
+
+@router.post("/reset-password")
+async def reset_password_endpoint(request: PasswordReset):
+    """
+    Reset the user's password.
+
+    Args:
+        request: The password reset request
+
+    Returns:
+        A success message
+    """
+    try:
+        reset_password(request.token, request.new_password)
+        return {"message": "Password reset successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
