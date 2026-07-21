@@ -8,7 +8,6 @@ Endpoints:
   POST /auth/login - Login with username/password
   GET /auth/me - Get current user info
   POST /auth/refresh - Refresh access token
-  GET /healthcheck - Check API status
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,7 +23,7 @@ from backend.auth.auth_utils import (
     get_user,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-
+from backend.auth.health import get_api_status
 
 # ─────────────────────────────────────────────
 # Models
@@ -63,51 +62,62 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 # ─────────────────────────────────────────────
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Get current user from token."""
-    user = get_user(token)
+    """Get the current user from the access token."""
+    user = decode_access_token(token)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Invalid access token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
 
 
 # ─────────────────────────────────────────────
-# Dependency: Get Super User
+# Dependency: Get Current Active User
 # ─────────────────────────────────────────────
 
-async def get_superuser():
-    """Get superuser."""
-    # Implement superuser logic here
-    pass
+async def get_current_active_user(current_user: User = Depends(get_current_user)):
+    """Get the current active user."""
+    if current_user.disabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user",
+        )
+    return current_user
 
 
 # ─────────────────────────────────────────────
-# Health Check Endpoint
+# Dependency: Get API Status
 # ─────────────────────────────────────────────
 
-async def healthcheck():
-    """Check API status."""
-    # Implement health check logic here
-    return {"status": "OK"}
+async def get_api_status():
+    """Get the API status."""
+    return get_api_status()
 
 
 # ─────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────
 
-router = APIRouter(prefix="/api/auth", tags=["Auth"])
+router = APIRouter()
 
-@router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Login with username/password."""
+
+# ─────────────────────────────────────────────
+# Login Route
+# ─────────────────────────────────────────────
+
+@router.post("/auth/login")
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Any = Depends(get_db),
+):
+    """Login with username and password."""
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -117,20 +127,46 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/me")
-async def read_users_me(current_user: User = Depends(get_current_user)):
-    """Get current user info."""
+# ─────────────────────────────────────────────
+# Get User Route
+# ─────────────────────────────────────────────
+
+@router.get("/auth/me")
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    """Get the current user."""
     return current_user
 
 
-@router.post("/refresh")
-async def refresh_token(token: str = Depends(oauth2_scheme)):
-    """Refresh access token."""
-    # Implement refresh token logic here
-    pass
+# ─────────────────────────────────────────────
+# Refresh Token Route
+# ─────────────────────────────────────────────
 
+@router.post("/auth/refresh")
+async def refresh_token(
+    token: str = Depends(oauth2_scheme),
+    db: Any = Depends(get_db),
+):
+    """Refresh the access token."""
+    user = decode_access_token(token)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+# ─────────────────────────────────────────────
+# Health Check Route
+# ─────────────────────────────────────────────
 
 @router.get("/healthcheck")
-async def healthcheck_endpoint():
-    """Check API status."""
-    return await healthcheck()
+async def healthcheck():
+    """Health check endpoint."""
+    api_status = get_api_status()
+    return {"api_status": api_status}
