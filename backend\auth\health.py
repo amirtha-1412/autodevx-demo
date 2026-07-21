@@ -1,12 +1,10 @@
 """
 backend/auth/health.py
 ─────────────────────────────────────────────
-API Health Check Module
-Handles API status checks.
+Health Check Module
+Provides a health check endpoint.
 """
 
-def get_api_status() -> str:
-    """
-    Returns the API status.
-    """
-    return "OK"
+class HealthCheck:
+    async def check(self):
+        return {"status": "OK"}
