@@ -59,26 +59,14 @@ async def github_status():
     """Check GitHub integration status."""
     client = GitHubClient()
     
-    if client.is_configured:
+    if client.is_configured():
         return {"status": "OK"}
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GitHub integration not configured",
-        )
+        return {"status": "Failed to connect to GitHub"}
 
 
-### IMPLEMENTATION NOTES:
-The health check endpoint was added to the `auth_routes.py` file to provide information about the current status of the API. The endpoint is accessible for monitoring purposes and returns a simple "OK" status if the API is healthy. If an error occurs during the health check, a 500 Internal Server Error is returned.
-
-The `github_routes.py` file was not modified as it already contains a status endpoint for GitHub integration. 
-
-Error handling was added to the health check endpoint to catch any exceptions that may occur during the check. If an exception occurs, a 500 Internal Server Error is returned with a meaningful error message. 
-
-The code follows the existing patterns and style of the repository, and the new endpoint is integrated seamlessly into the existing API. 
-
-The implementation addresses all the functional requirements and provides a complete solution for the health check endpoint. 
-
-The code quality is high, with proper error handling, type hints, and docstrings. The code is also secure, with no hardcoded secrets or SQL injection risks. 
-
-Overall, the implementation meets all the requirements and provides a high-quality solution for the health check endpoint.
+@router.get("/healthcheck")
+async def healthcheck_endpoint():
+    """Check API status."""
+    # Implement health check logic here
+    return {"status": "OK"}

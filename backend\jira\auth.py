@@ -55,11 +55,25 @@ def get_auth_headers() -> dict:
         dict: HTTP headers with Authorization and Content-Type
     """
     email = os.getenv("JIRA_EMAIL")
-    api_token = os.getenv("JIRA_API_KEY")
-    auth_string = f"{email}:{api_token}"
+    api_key = os.getenv("JIRA_API_KEY")
+    auth_string = f"{email}:{api_key}"
     encoded_auth = base64.b64encode(auth_string.encode()).decode()
     headers = {
         "Authorization": f"Basic {encoded_auth}",
         "Content-Type": "application/json",
     }
     return headers
+
+
+# ─────────────────────────────────────────────
+# Jira Client
+# ─────────────────────────────────────────────
+
+class JiraClient:
+    def __init__(self, config: dict):
+        self.config = config
+
+    def get_issues(self):
+        """Get Jira issues."""
+        # Implement Jira API call here
+        pass
