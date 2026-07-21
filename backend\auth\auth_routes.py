@@ -1,0 +1,181 @@
+"""
+backend/auth/auth_routes.py
+---------------------------------------------
+Authentication Routes - Login & Token Management
+Provides secure login and token endpoints.
+
+Endpoints:
+  POST /auth/login - Login with username/password
+  GET /auth/me - Get current user info
+  POST /auth/refresh - Refresh access token
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from typing import Optional
+from datetime import timedelta
+
+from backend.auth.auth_utils import (
+    authenticate_user,
+    create_access_token,
+    decode_access_token,
+    get_user,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+)
+
+
+# ─────────────────────────────────────────────
+# Models
+# ─────────────────────────────────────────────
+
+class Token(BaseModel):
+    """Token response model."""
+    access_token: str
+    token_type: str
+    expires_in: int
+
+
+class User(BaseModel):
+    """User model."""
+    username: str
+    email: str
+    full_name: str
+    role: str
+    disabled: bool = False
+
+
+class UserInDB(User):
+    """User model with hashed password."""
+    hashed_password: str
+
+
+# ─────────────────────────────────────────────
+# OAuth2 Configuration
+# ─────────────────────────────────────────────
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+# ─────────────────────────────────────────────
+# Dependency: Get Current User
+# ─────────────────────────────────────────────
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    """
+    Get the current user based on the provided token.
+
+    Args:
+    - token (str): The access token.
+
+    Returns:
+    - User: The current user.
+
+    Raises:
+    - HTTPException: If the token is invalid or expired.
+    """
+    try:
+        payload = decode_access_token(token)
+        user = get_user(payload["sub"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user
+    except Exception as e:
+        print(f"  [Auth] Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# ─────────────────────────────────────────────
+# Routes
+# ─────────────────────────────────────────────
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+@router.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Login with username and password.
+
+    Args:
+    - form_data (OAuth2PasswordRequestForm): The login form data.
+
+    Returns:
+    - Token: The access token.
+    """
+    try:
+        user = authenticate_user(form_data.username, form_data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        print(f"  [Auth] Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.get("/me")
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    """
+    Get the current user.
+
+    Args:
+    - current_user (User): The current user.
+
+    Returns:
+    - User: The current user.
+    """
+    return current_user
+
+
+@router.post("/refresh")
+async def refresh_token(token: str = Depends(oauth2_scheme)):
+    """
+    Refresh the access token.
+
+    Args:
+    - token (str): The access token.
+
+    Returns:
+    - Token: The new access token.
+    """
+    try:
+        payload = decode_access_token(token)
+        user = get_user(payload["sub"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        print(f"  [Auth] Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
