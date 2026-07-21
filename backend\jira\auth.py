@@ -54,27 +54,10 @@ def get_auth_headers() -> dict:
     Returns:
         dict: HTTP headers with Authorization and Content-Type
     """
-    email = os.getenv("JIRA_EMAIL", "")
-    api_key = os.getenv("JIRA_API_KEY", "")
+    email = os.getenv("JIRA_EMAIL")
+    api_key = os.getenv("JIRA_API_KEY")
     auth_string = f"{email}:{api_key}"
     auth_bytes = auth_string.encode("utf-8")
-    encoded_auth = base64.b64encode(auth_bytes).decode("utf-8")
-    headers = {
-        "Authorization": f"Basic {encoded_auth}",
-        "Content-Type": "application/json",
-    }
-    return headers
-
-
-# ─────────────────────────────────────────────
-# Jira API Client
-# ─────────────────────────────────────────────
-
-def get_jira_client() -> requests.Session:
-    """
-    Returns a Jira API client with Basic Auth headers.
-    """
-    headers = get_auth_headers()
-    client = requests.Session()
-    client.headers.update(headers)
-    return client
+    auth_b64 = base64.b64encode(auth_bytes)
+    auth_header = f"Basic {auth_b64.decode('utf-8')}"
+    return {"Authorization": auth_header, "Content-Type": "application/json"}
