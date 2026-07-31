@@ -6,7 +6,7 @@ Provides secure login and token endpoints.
 
 Endpoints:
   POST /auth/login
-  GET /auth/status
+  GET /auth/health
 """
 
 from fastapi import APIRouter, HTTPException
@@ -14,45 +14,37 @@ from pydantic import BaseModel
 from typing import Dict
 import logging
 
+# Create a logger
+logger = logging.getLogger(__name__)
+
 # Define the router
 router = APIRouter()
 
-# Define a model for the status response
-class StatusResponse(BaseModel):
-    """Status response model"""
+# Define a response model for the health check endpoint
+class HealthCheckResponse(BaseModel):
+    """Response model for the health check endpoint"""
     status: str
+    message: str
 
-# Define the health check endpoint
-@router.get("/auth/status", response_model=StatusResponse)
-async def get_status() -> Dict:
+@router.get("/auth/health", response_model=Dict[str, str])
+async def health_check() -> Dict[str, str]:
     """
-    Get the status of the API.
+    Health check endpoint.
 
     Returns:
-        StatusResponse: A dictionary containing the status of the API.
+        A dictionary containing the status and message of the API.
     """
     try:
-        # Check the database connection
-        # For demonstration purposes, assume a successful connection
-        db_connected = True
-
-        # Check external services
-        # For demonstration purposes, assume all services are available
-        services_available = True
-
-        # If all checks pass, return a healthy status
-        if db_connected and services_available:
-            return {"status": "healthy"}
-        else:
-            # If any checks fail, return an unhealthy status
-            return {"status": "unhealthy"}
+        # Check the API's status
+        status = "OK"
+        message = "The API is running normally."
+        logger.info("  [Agent] Health check: OK")
+        return {"status": status, "message": message}
     except Exception as e:
-        # Log any errors and return an error response
-        logging.error(f"Error checking API status: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        # Handle any exceptions
+        status = "FAIL"
+        message = "An error occurred during the health check."
+        logger.error(f"  [Agent] Health check: {str(e)}")
+        return {"status": status, "message": message}
 
-# Define the login endpoint (existing code)
-@router.post("/auth/login")
-async def login(username: str, password: str) -> Dict:
-    # Existing login logic...
-    pass
+# Existing routes...
